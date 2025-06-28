@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome App</title>
+    <!-- Tailwind CSS CDN for quick styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for a better look and feel */
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(to right, #6dd5ed, #2193b0); /* Blue gradient background */
+            color: #fff;
+            padding: 20px;
+        }
+        .container {
+            background-color: rgba(255, 255, 255, 0.15); /* Slightly transparent white background */
+            padding: 40px;
+            border-radius: 15px; /* Rounded corners for the container */
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); /* Soft shadow */
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+            backdrop-filter: blur(10px); /* Frosted glass effect */
+            -webkit-backdrop-filter: blur(10px); /* For Safari */
+        }
+        h1 {
+            font-size: 2.5rem; /* Larger heading */
+            margin-bottom: 20px;
+            font-weight: 700;
+        }
+        p {
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+        }
+        input[type="text"] {
+            width: calc(100% - 20px); /* Full width with padding consideration */
+            padding: 12px;
+            margin-bottom: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.5); /* Semi-transparent white border */
+            border-radius: 8px; /* Rounded input field */
+            background-color: rgba(255, 255, 255, 0.2); /* Semi-transparent background */
+            color: #fff;
+            font-size: 1rem;
+            outline: none; /* Remove outline on focus */
+            transition: border-color 0.3s ease;
+        }
+        input[type="text"]::placeholder {
+            color: rgba(255, 255, 255, 0.7); /* Placeholder color */
+        }
+        input[type="text"]:focus {
+            border-color: #fff; /* White border on focus */
+        }
+        button {
+            background: linear-gradient(to right, #4CAF50, #8BC34A); /* Green gradient button */
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px; /* Rounded button */
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        button:hover {
+            transform: translateY(-3px); /* Lift effect on hover */
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+            background: linear-gradient(to right, #8BC34A, #4CAF50); /* Inverted gradient on hover */
+        }
+        #messageBox {
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            font-size: 1rem;
+            display: none; /* Hidden by default */
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 id="greetingText">Hello, Welcome to Tech World.</h1>
+        <p>Enter your name to personalize your greeting:</p>
+        <input type="text" id="nameInput" placeholder="Your Name">
+        <button id="submitBtn">Submit</button>
+        <div id="messageBox" class="mt-4 p-3 rounded-lg text-sm bg-red-600 hidden"></div>
+    </div>
+
+    <script>
+        // Placeholder for your API Gateway Invoke URL.
+        // This will be dynamically replaced by GitHub Actions during deployment.
+        const API_GATEWAY_INVOKE_URL = 'YOUR_API_GATEWAY_INVOKE_URL_HERE'; // DO NOT EDIT MANUALLY HERE!
+
+        const greetingText = document.getElementById('greetingText');
+        const nameInput = document.getElementById('nameInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const messageBox = document.getElementById('messageBox');
+
+        // Function to show a temporary message in the messageBox
+        function showMessage(message, isError = false) {
+            messageBox.textContent = message;
+            messageBox.className = `mt-4 p-3 rounded-lg text-sm ${isError ? 'bg-red-600' : 'bg-green-600'} block`;
+            setTimeout(() => {
+                messageBox.className = 'mt-4 p-3 rounded-lg text-sm bg-red-600 hidden';
+            }, 3000); // Hide after 3 seconds
+        }
+
+        // Function to fetch the current greeting from Lambda (GET request)
+        async function fetchGreeting() {
+            try {
+                // Fetch request to your API Gateway endpoint
+                const response = await fetch(API_GATEWAY_INVOKE_URL, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (data && data.message) {
+                    greetingText.textContent = data.message;
+                }
+            } catch (error) {
+                console.error('Error fetching greeting:', error);
+                showMessage('Failed to load greeting. Please check console.', true);
+                greetingText.textContent = 'Hello, Welcome to Tech World.'; // Fallback
+            }
+        }
+
+        // Function to submit the name to Lambda (POST request)
+        async function submitName() {
+            const name = nameInput.value.trim();
+            if (!name) {
+                showMessage('Please enter your name!', true);
+                return;
+            }
+
+            try {
+                // POST request to your API Gateway endpoint
+                const response = await fetch(API_GATEWAY_INVOKE_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ name: name }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (data && data.message) {
+                    greetingText.textContent = data.message;
+                    showMessage('Greeting updated!', false);
+                }
+            } catch (error) {
+                console.error('Error submitting name:', error);
+                showMessage('Failed to update greeting. Please check console.', true);
+            } finally {
+                nameInput.value = ''; // Clear input field after submission
+            }
+        }
+
+        // Event listeners
+        submitBtn.addEventListener('click', submitName);
+        nameInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                submitName();
+            }
+        });
+
+        // Initial fetch when the page loads
+        document.addEventListener('DOMContentLoaded', fetchGreeting);
+    </script>
+</body>
+</html>
