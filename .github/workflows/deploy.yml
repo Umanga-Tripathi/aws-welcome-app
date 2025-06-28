@@ -63,3 +63,4 @@ jobs:
         run: |
           echo "Static Website: http://welcomeapp-static-website-bucket.s3-website-us-east-1.amazonaws.com"
           echo "API Gateway URL: $API_GATEWAY_URL"
+#test redeploy
