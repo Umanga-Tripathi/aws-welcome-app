@@ -60,7 +60,7 @@ jobs:
             --create-bucket-configuration LocationConstraint=${{ env.AWS_REGION }} || true # || true to ignore error if bucket exists
         env:
           AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
 
       - name: Upload Lambda Function to S3
@@ -68,7 +68,7 @@ jobs:
           aws s3 cp lambda_function.zip s3://${{ env.LAMBDA_CODE_BUCKET_NAME }}/lambda_function.zip
         env:
           AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
 
       - name: Deploy CloudFormation Stack
@@ -119,7 +119,7 @@ jobs:
           aws s3 sync web-app/ s3://${{ env.WEBSITE_BUCKET_NAME }}/ --delete
         env:
           AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
 
       - name: Invalidate CloudFront Cache (Optional, if you add CloudFront later)
@@ -134,7 +134,7 @@ jobs:
         #   fi
         # env:
         #   AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-        #   AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+        #   AWS_SECRET_ACCESS_KEY: ${{ env.SECRET_ACCESS_KEY }}
         #   AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
 
       - name: Print Deployment URLs
