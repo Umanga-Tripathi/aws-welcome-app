@@ -1,36 +1,34 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >
-  CloudFormation template for a simple web app with Lambda, DynamoDB, and API Gateway.
-  It includes an S3 bucket for static website hosting and a bucket for Lambda deployment packages.
+Description: AWS Welcome App - CloudFormation Template
 
 Parameters:
-  AppName:
+  LambdaS3Bucket:
     Type: String
-    Default: WelcomeApp
-    Description: A name for your application. Used for resource naming.
-  LambdaFunctionName:
+    Description: S3 bucket containing Lambda code zip
+
+  LambdaS3Key:
     Type: String
-    Default: WelcomeAppLambda
-    Description: Name for the AWS Lambda function.
-  DynamoDBTableName:
-    Type: String
-    Default: WelcomeAppGreetings
-    Description: Name for the DynamoDB table to store greetings.
-  WebsiteBucketName:
-    Type: String
-    Default: !Sub "${AppName}-static-website-${AWS::AccountId}" # Unique bucket name for website
-    Description: Name for the S3 bucket to host the static website. Must be globally unique.
-  LambdaCodeBucketName:
-    Type: String
-    Default: !Sub "${AppName}-lambda-code-${AWS::AccountId}" # Unique bucket name for Lambda code
-    Description: Name for the S3 bucket to store Lambda deployment packages. Must be globally unique.
+    Description: S3 key of Lambda code zip
 
 Resources:
-  # IAM Role for Lambda Function
+  WelcomeAppLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: WelcomeAppLambda
+      Runtime: python3.11
+      Handler: lambda_function.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Ref LambdaS3Key
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref GreetingsTable
+
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AppName}-LambdaExecutionRole"
+      RoleName: WelcomeApp-LambdaExecutionRole
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -39,7 +37,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole # Allows Lambda to write logs to CloudWatch
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
         - PolicyName: DynamoDBAccessPolicy
           PolicyDocument:
@@ -49,231 +47,63 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
-                  - dynamodb:UpdateItem
-                Resource: !GetAtt DynamoDBTable.Arn # Grant access only to our specific DynamoDB table
+                Resource: "*"
 
-  # DynamoDB Table
-  DynamoDBTable:
+  GreetingsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref DynamoDBTableName
+      TableName: WelcomeAppGreetings
+      BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: SettingName
-          AttributeType: S # 'S' for String, 'N' for Number, 'B' for Binary
+          AttributeType: S
       KeySchema:
         - AttributeName: SettingName
-          KeyType: HASH # Partition key
-      BillingMode: PAY_PER_REQUEST # Use on-demand capacity
+          KeyType: HASH
 
-  # S3 Bucket for Lambda deployment packages (private)
-  LambdaCodeBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref LambdaCodeBucketName
-      # Best practice: Add a bucket policy to prevent public access
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicDirs: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      Tags:
-        - Key: Application
-          Value: !Ref AppName
-        - Key: Purpose
-          Value: LambdaCodeStorage
-
-  # AWS Lambda Function
-  LambdaFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Ref LambdaFunctionName
-      Handler: lambda_function.handler # The file name (without .py) and the function name
-      Runtime: python3.9
-      Role: !GetAtt LambdaExecutionRole.Arn
-      MemorySize: 128
-      Timeout: 30
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref DynamoDBTableName # Pass the DynamoDB table name to Lambda
-      Code:
-        # Reference the S3 bucket and key where the Lambda ZIP file will be uploaded
-        S3Bucket: !Ref LambdaCodeBucketName
-        S3Key: lambda_function.zip # This filename will be consistent in the GitHub Actions workflow
-
-  # API Gateway REST API
-  ApiGatewayRestApi:
+  ApiGateway:
     Type: AWS::ApiGateway::RestApi
     Properties:
-      Name: !Sub "${AppName}-API"
-      Description: API for the Welcome App Lambda
-      CorsConfiguration:
-        AllowOrigins:
-          - '*' # WARNING: Use your actual website URL in production (e.g., !GetAtt S3Bucket.WebsiteURL)
-        AllowMethods:
-          - GET
-          - POST
-          - OPTIONS
-        AllowHeaders:
-          - Content-Type
-          - X-Amz-Date
-          - Authorization
-          - X-Api-Key
-          - X-Amz-Security-Token
+      Name: WelcomeAppAPI
 
-  # API Gateway Resource (e.g., /greet)
-  ApiGatewayResource:
+  RootResource:
     Type: AWS::ApiGateway::Resource
     Properties:
-      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
-      PathPart: greet # The path for your API endpoint, e.g., /greet
-      RestApiId: !Ref ApiGatewayRestApi
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: greet
+      RestApiId: !Ref ApiGateway
 
-  # API Gateway GET Method
-  ApiGatewayMethodGet:
+  LambdaApiMethod:
     Type: AWS::ApiGateway::Method
     Properties:
-      HttpMethod: GET
-      ResourceId: !Ref ApiGatewayResource
-      RestApiId: !Ref ApiGatewayRestApi
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref RootResource
+      HttpMethod: ANY
       AuthorizationType: NONE
       Integration:
-        Type: AWS_PROXY
         IntegrationHttpMethod: POST
-        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations"
-        PassthroughBehavior: WHEN_NO_MATCH
-        IntegrationResponses:
-          - StatusCode: 200
-        ContentHandling: CONVERT_TO_TEXT
-      MethodResponses:
-        - StatusCode: 200
-          ResponseModels:
-            application/json: "Empty"
-
-  # API Gateway POST Method
-  ApiGatewayMethodPost:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      HttpMethod: POST
-      ResourceId: !Ref ApiGatewayResource
-      RestApiId: !Ref ApiGatewayRestApi
-      AuthorizationType: NONE
-      Integration:
         Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations"
-        PassthroughBehavior: WHEN_NO_MATCH
-        IntegrationResponses:
-          - StatusCode: 200
-        ContentHandling: CONVERT_TO_TEXT
-      MethodResponses:
-        - StatusCode: 200
-          ResponseModels:
-            application/json: "Empty"
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WelcomeAppLambda.Arn}/invocations
 
-  # API Gateway OPTIONS Method (for CORS pre-flight requests)
-  ApiGatewayMethodOptions:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      HttpMethod: OPTIONS
-      ResourceId: !Ref ApiGatewayResource
-      RestApiId: !Ref ApiGatewayRestApi
-      AuthorizationType: NONE
-      Integration:
-        Type: MOCK
-        IntegrationResponses:
-          - StatusCode: 200
-            ResponseParameters:
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
-              method.response.header.Access-Control-Allow-Origin: "'*'"
-            ResponseTemplates:
-              application/json: "{}"
-        PassthroughBehavior: WHEN_NO_MATCH
-        RequestTemplates:
-          application/json: "{\"statusCode\": 200}"
-      MethodResponses:
-        - StatusCode: 200
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Headers: true
-            method.response.header.Access-Control-Allow-Methods: true
-            method.response.header.Access-Control-Allow-Origin: true
-
-  # API Gateway Deployment
-  ApiGatewayDeployment:
-    Type: AWS::ApiGateway::Deployment
-    Properties:
-      RestApiId: !Ref ApiGatewayRestApi
-      Description: Initial deployment of the API Gateway
-    DependsOn:
-      - ApiGatewayMethodGet
-      - ApiGatewayMethodPost
-      - ApiGatewayMethodOptions
-
-  # API Gateway Stage
-  ApiGatewayStage:
-    Type: AWS::ApiGateway::Stage
-    Properties:
-      StageName: prod
-      Description: Production Stage
-      RestApiId: !Ref ApiGatewayRestApi
-      DeploymentId: !Ref ApiGatewayDeployment
-
-  # Lambda Permission for API Gateway to invoke it
-  ApiGatewayLambdaPermission:
+  LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
+      FunctionName: !Ref WelcomeAppLambda
       Action: lambda:InvokeFunction
-      FunctionName: !GetAtt LambdaFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/*"
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*
 
-  # S3 Bucket for static website hosting
-  WebsiteBucket:
-    Type: AWS::S3::Bucket
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: LambdaApiMethod
     Properties:
-      BucketName: !Ref WebsiteBucketName
-      WebsiteConfiguration:
-        IndexDocument: index.html
-        ErrorDocument: index.html
-      Tags:
-        - Key: Application
-          Value: !Ref AppName
-
-  # S3 Bucket Policy to allow public read access (required for static website hosting)
-  WebsiteBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref WebsiteBucketName
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: "*"
-            Action:
-              - s3:GetObject
-            Resource: !Join ['', ['arn:aws:s3:::', !Ref WebsiteBucketName, '/*']]
+      RestApiId: !Ref ApiGateway
+      StageName: prod
 
 Outputs:
-  ApiGatewayInvokeURL:
-    Description: The URL to invoke the API Gateway endpoint for your Lambda function.
-    Value: !Join ['', ['https://', !Ref ApiGatewayRestApi, '.execute-api.', !Ref 'AWS::Region', '.amazonaws.com/', !Ref ApiGatewayStage, '/greet']]
+  ApiGatewayInvokeUrl:
+    Description: API Gateway Invoke URL
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/greet
     Export:
-      Name: !Sub "${AppName}-ApiGatewayInvokeURL"
-
-  S3WebsiteURL:
-    Description: The URL for the static website hosted in S3.
-    Value: !GetAtt WebsiteBucket.WebsiteURL
-    Export:
-      Name: !Sub "${AppName}-S3WebsiteURL"
-
-  WebsiteBucketNameOutput:
-    Description: The name of the S3 bucket hosting the website.
-    Value: !Ref WebsiteBucketName
-    Export:
-      Name: !Sub "${AppName}-S3WebsiteBucketName"
-
-  LambdaCodeBucketNameOutput:
-    Description: The name of the S3 bucket for Lambda code.
-    Value: !Ref LambdaCodeBucketName
-    Export:
-      Name: !Sub "${AppName}-S3LambdaCodeBucketName"
+      Name: ApiGatewayInvokeUrl

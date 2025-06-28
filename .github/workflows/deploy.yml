@@ -3,126 +3,63 @@ name: Deploy AWS Welcome App
 on:
   push:
     branches:
-      - main # Trigger on pushes to the main branch
-
-env:
-  AWS_REGION: us-east-1 # Change this to your desired AWS region (e.g., us-west-2, eu-central-1)
-  STACK_NAME: WelcomeAppStack # Name of your CloudFormation stack
-  # Ensure these match the Default values in your cloudformation.yaml or override them
-  APP_NAME: WelcomeApp
-  LAMBDA_FUNCTION_NAME: WelcomeAppLambda
-  DYNAMODB_TABLE_NAME: WelcomeAppGreetings
-  WEBSITE_BUCKET_NAME: welcomeapp-static-website-${{ github.event.repository.owner.name }}-${{ github.sha }} # Use owner name and SHA for uniqueness
-  LAMBDA_CODE_BUCKET_NAME: welcomeapp-lambda-code-${{ github.event.repository.owner.name }}-${{ github.sha }}
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     permissions:
-      id-token: write # Required for OIDC authentication with AWS
-      contents: read  # Required to checkout the code
+      id-token: write
+      contents: read
 
     steps:
-      - name: Checkout code
+      - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials from OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsDeploymentRole # Your IAM Role ARN
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ secrets.767397806650 }}:role/GitHubActionsDeploymentRole
+          aws-region: us-east-1
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9' # Ensure this matches your Lambda runtime
-
-      - name: Install AWS CLI
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y awscli
-
-      - name: Package Lambda Function
+      - name: Zip Lambda function
         run: |
           cd lambda
-          zip -r ../lambda_function.zip .
-          cd ..
-        # Output: lambda_function.zip in the root of the workspace
+          zip -r ../lambda.zip .
 
-      - name: Create Lambda Code S3 Bucket (if not exists)
-        # CloudFormation will create this bucket, but if you run the workflow standalone
-        # or if the bucket doesn't exist from a previous CF run, this ensures it's there for upload.
-        # This step is mostly for robustness; CloudFormation is the primary creator.
+      - name: Upload Lambda code to S3
         run: |
-          aws s3api create-bucket \
-            --bucket ${{ env.LAMBDA_CODE_BUCKET_NAME }} \
-            --region ${{ env.AWS_REGION }} \
-            --create-bucket-configuration LocationConstraint=${{ env.AWS_REGION }} || true # || true to ignore error if bucket exists
-
-      - name: Upload Lambda Function to S3
-        run: |
-          aws s3 cp lambda_function.zip s3://${{ env.LAMBDA_CODE_BUCKET_NAME }}/lambda_function.zip
+          aws s3 cp lambda.zip s3://welcomeapp-lambda-code-bucket/lambda.zip
 
       - name: Deploy CloudFormation Stack
-        id: deploy_cf
         run: |
-          # Use `aws cloudformation deploy` for easy updates and parameter passing
-          # We pass all bucket names explicitly, ensuring they match what the template expects
           aws cloudformation deploy \
             --template-file cloudformation.yaml \
-            --stack-name ${{ env.STACK_NAME }} \
-            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --stack-name WelcomeAppStack \
+            --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-              AppName=${{ env.APP_NAME }} \
-              LambdaFunctionName=${{ env.LAMBDA_FUNCTION_NAME }} \
-              DynamoDBTableName=${{ env.DYNAMODB_TABLE_NAME }} \
-              WebsiteBucketName=${{ env.WEBSITE_BUCKET_NAME }} \
-              LambdaCodeBucketName=${{ env.LAMBDA_CODE_BUCKET_NAME }} \
-            --no-fail-on-empty-changeset \
-            --region ${{ env.AWS_REGION }}
+              LambdaS3Bucket=welcomeapp-lambda-code-bucket \
+              LambdaS3Key=lambda.zip
 
-      - name: Get CloudFormation Outputs
-        id: get_outputs
+      - name: Get API Gateway URL from CloudFormation Output
+        id: get_apigw_url
         run: |
-          # Get outputs from the deployed stack
-          API_URL=$(aws cloudformation describe-stacks \
-            --stack-name ${{ env.STACK_NAME }} \
-            --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayInvokeURL'].OutputValue" \
-            --output text --region ${{ env.AWS_REGION }})
+          url=$(aws cloudformation describe-stacks \
+            --stack-name WelcomeAppStack \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayInvokeUrl'].OutputValue" \
+            --output text)
+          echo "API_GATEWAY_URL=$url" >> $GITHUB_ENV
 
-          S3_WEBSITE_URL=$(aws cloudformation describe-stacks \
-            --stack-name ${{ env.STACK_NAME }} \
-            --query "Stacks[0].Outputs[?OutputKey=='S3WebsiteURL'].OutputValue" \
-            --output text --region ${{ env.AWS_REGION }})
-
-          # Set outputs for subsequent steps
-          echo "api_gateway_url=$API_URL" >> "$GITHUB_OUTPUT"
-          echo "s3_website_url=$S3_WEBSITE_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Update index.html with API Gateway URL
+      - name: Replace API placeholder in frontend
         run: |
-          # Use sed to replace the placeholder in index.html with the actual API Gateway URL
-          # Use a different delimiter than / since the URL contains /
-          sed -i "s|YOUR_API_GATEWAY_INVOKE_URL_HERE|${{ steps.get_outputs.outputs.api_gateway_url }}|g" web-app/index.html
+          sed -i "s|YOUR_API_GATEWAY_INVOKE_URL_HERE|${API_GATEWAY_URL}|g" web-app/index.html
 
-      - name: Upload Website Content to S3
+      - name: Upload frontend to S3
         run: |
-          # Sync the web-app directory to the S3 bucket for static website hosting
-          aws s3 sync web-app/ s3://${{ env.WEBSITE_BUCKET_NAME }}/ --delete
+          aws s3 sync web-app/ s3://welcomeapp-static-website-bucket/ --delete
 
-      - name: Invalidate CloudFront Cache (Optional, if you add CloudFront later)
-        # This step is commented out but included for future expansion if you add CloudFront for CDN.
-        # run: |
-        #   DISTRIBUTION_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items[?contains(@, '${{ env.WEBSITE_BUCKET_NAME }}')]].Id" --output text)
-        #   if [ -n "$DISTRIBUTION_ID" ]; then
-        #     aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
-        #     echo "CloudFront cache invalidated for distribution: $DISTRIBUTION_ID"
-        #   else
-        #     echo "No CloudFront distribution found for this bucket."
-        #   fi
-
-      - name: Print Deployment URLs
+      - name: Print website URL
         run: |
-          echo "Deployment complete!"
-          echo "Website URL: ${{ steps.get_outputs.outputs.s3_website_url }}"
-          echo "API Gateway URL: ${{ steps.get_outputs.outputs.api_gateway_url }}"
+          echo "Static Website: http://welcomeapp-static-website-bucket.s3-website-us-east-1.amazonaws.com"
+          echo "API Gateway URL: $API_GATEWAY_URL"
