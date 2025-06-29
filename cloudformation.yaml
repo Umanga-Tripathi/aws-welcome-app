@@ -100,11 +100,11 @@ Resources:
     Properties:
       RestApiId: !Ref ApiGateway
       StageName: prod
-
+  
   StaticWebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "welcomeapp-static-website-${GitHubRepositoryOwner}-${GitHubSha}" # Dynamic name
+      BucketName: welcomeapp-static-website-bucket
       WebsiteConfiguration:
         IndexDocument: index.html
         ErrorDocument: index.html
@@ -113,31 +113,6 @@ Resources:
         BlockPublicPolicy: false
         IgnorePublicAcls: false
         RestrictPublicBuckets: false
-      Tags:
-        - Key: Application
-          Value: WelcomeApp
-        - Key: Type
-          Value: StaticWebsite
-
-  # NEW: S3 Bucket Policy to allow public read access for the website (essential for hosting)
-  StaticWebsiteBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref StaticWebsiteBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: "*"
-            Action:
-              - s3:GetObject
-            Resource: !Join ['', ['arn:aws:s3:::', !Ref StaticWebsiteBucket, '/*']]
-          - Effect: Allow # Ensure bucket name is accessible for website config
-            Principal: "*"
-            Action: "s3:ListBucket"
-            Resource: !GetAtt StaticWebsiteBucket.Arn # Grant permissions on the bucket itself
-
-  
 
 Outputs:
   ApiGatewayInvokeUrl:
@@ -145,15 +120,3 @@ Outputs:
     Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/greet
     Export:
       Name: ApiGatewayInvokeUrl
-
-  S3WebsiteURL: # New Output for the website URL
-    Description: The URL for the static website hosted in S3.
-    Value: !GetAtt StaticWebsiteBucket.WebsiteURL
-    Export:
-      Name: S3WebsiteURL
-
-  StaticWebsiteBucketNameOutput: # New Output for the website bucket name
-    Description: The name of the S3 bucket hosting the website.
-    Value: !Ref StaticWebsiteBucket
-    Export:
-      Name: StaticWebsiteBucketName
